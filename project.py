@@ -66,7 +66,7 @@ def load_train_result(db_path) -> dict:
         with open(db_path, 'rb') as stream:
             train_result = pickle.load(stream)
     except FileNotFoundError:
-        print ('Najpierw wytrenuj program!')
+        print ('Train program first!')
     
     return train_result
     
@@ -75,9 +75,8 @@ def cli():
     pass
 
 @cli.command()
-def train():
+def train() -> dict(str, float):
     
-
     print("I started training myself in positive comments")
     words_count_pos = count_words(POS_FILES_FOLDER)
     save_train_result(words_count_pos, POS_DB_FILENAME)
