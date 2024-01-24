@@ -18,21 +18,45 @@ TRAIN_FILES_FOLDER = "data/aclimdb/train"
 CSV_ALL_REVIEWS_COMBINED = 'all_reviews_combined.csv'
 POS_DB_FILENAME = "trained_pos_reviews.csv"
 NEG_DB_FILENAME = "trained_neg_reviews.csv"
+DATABASE_NAME = 'Reviews'
+COLLECTION_NAME = 'Reviews_combined'
+CONNECTION_STRING = 'mongodb://localhost:27017/'
+CHARS_TO_REPLACE =['?', '!', '.', ',', ':', ';', '"', "'", '(', ')', '[', ']', '{', '}','<br />','-','%','/']
+
+
 
 def preprocess_review(review):
     """Return a list or words"""
-    return review.lower().replace('<br />', ' ').split()
+    for char in CHARS_TO_REPLACE:
+        review = review.replace(char, ' ')
+    return review.lower().split()
 
+def mongodb_access():
+    client = pymongo.MongoClient(CONNECTION_STRING)
+    db = client[DATABASE_NAME]
+    collection = db[COLLECTION_NAME]
 
-def count_words(path_pattern):
+    return collection
+
+def count_words(label_filter=None):
     words_count = {}
-    files = glob.glob(path_pattern)
-    for file in files:
-        with open(file, encoding='utf-8') as stream:
-            content = stream.read()
-            words = preprocess_review(content)
-            for word in set(words):
-                words_count[word] = words_count.get(word, 0) + 1
+    client = pymongo.MongoClient(CONNECTION_STRING)
+    db = client[DATABASE_NAME]
+    collection = db[COLLECTION_NAME]
+
+    query = {}
+    if label_filter:
+        query['label'] = label_filter
+
+    cursor = collection.find(query, {'description': 1})
+
+    for document in cursor:
+        content = document.get('description', '')
+        words = preprocess_review(content)
+        
+        for word in set(words):
+            words_count[word] = words_count.get(word, 0) + 1
+
     return words_count
 
 
@@ -41,7 +65,6 @@ def compute_sentiment(words, words_count_pos, words_count_neg, debug=False):
     for word in words:
         positive = words_count_pos.get(word, 0)
         negative = words_count_neg.get(word, 0)
-
         all_ = positive + negative
         if all_ == 0:
             word_sentiment = 0.0
@@ -54,7 +77,7 @@ def compute_sentiment(words, words_count_pos, words_count_neg, debug=False):
     return sentence_sentiment
 
 
-def print_sentient(sentiment):
+def print_sentiment(sentiment):
     if sentiment > 0:
         label = 'positive'
     else:
@@ -125,54 +148,49 @@ def cli():
 
 @cli.command()
 def train() -> dict:
-    
+    """This command create two dictionaries, and saves them as .csv file. Dictionaries are based on comments in database, and created based on amount of words in comments labeled as positive or negative comments"""
     print("I started training myself in positive comments")
-    words_count_pos = count_words(POS_FILES_FOLDER)
+    words_count_pos = count_words('positive')
     save_train_result(words_count_pos, POS_DB_FILENAME)
     print("I finished training in positive, now in negativity")
-    words_count_neg = count_words(NEG_FILES_FOLDER)
+    words_count_neg = count_words('negative')
     save_train_result(words_count_neg, NEG_DB_FILENAME)
     print("I finished all training, now enter comments")
 
 @cli.command()
 @click.argument('new_review', type=str)
 def report(new_review) -> str:
+    """This command create report, which for now, just state sentiment of provided comment negative/positive and exactle sentiment value"""
     words_count_pos = load_train_result(POS_DB_FILENAME)
     words_count_neg = load_train_result(NEG_DB_FILENAME)
     words = preprocess_review(new_review)
     sentiment = compute_sentiment(
         words, words_count_pos, words_count_neg, debug=True)
     print('==')
-    print_sentient(sentiment)
+    print_sentiment(sentiment)
 
 
 @cli.command()
 def merge_command():
+    """Merge .txt files from origin folder into single csv_file"""
     merge_to_csv()
     
 
-
-
-
 @cli.command()
-@click.option('--connection_string', prompt=True, help='MongoDB connection string')
-@click.option('--database_name', prompt=True, help='Name of the MongoDB database')
-@click.option('--collection_name', prompt=True, help='Name of the MongoDB collection')
-@click.argument('csv_file', type=click.Path(exists=True))
-def upload_to_mongodb(connection_string, database_name, collection_name, csv_file):
+def upload_to_mongodb():
     """Upload CSV file to MongoDB."""
-    client = pymongo.MongoClient(connection_string)
-    db = client[database_name]
-    collection = db[collection_name]
+    mongodb_access()
 
-    with open(csv_file, 'r', encoding='utf-8') as csvfile:
+    with open(CSV_ALL_REVIEWS_COMBINED, 'r', encoding='utf-8') as csvfile:
         csv_reader = csv.DictReader(csvfile)
         documents = list(csv_reader)
 
-    collection.insert_many(documents)
-    click.echo(f'{len(documents)} files uploaded to MongoDB.')
+    if documents:
+        collection = mongodb_access()
+        collection.insert_many(documents)
+        click.echo(f'{len(documents)} records uploaded to MongoDB collection: {COLLECTION_NAME}')
+    else:
+        click.echo('No records found in the CSV file.')
 
-# ... Other Click commands and functions ...
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     cli()
