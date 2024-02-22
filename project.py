@@ -99,7 +99,6 @@ def load_train_result(db_path) -> dict:
     return train_result
     
 def extract_info_from_filename(filename):
-    print("Hey, I was executed!")
     match = re.match(r'(\d+)_(\d+)(?:_\d+)?\.txt', filename)
     if match:
         index_part, rate_part = match.groups()
